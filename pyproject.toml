@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "fvcs"
+version = "0.1.0"
+description = ""
+authors = ["Timur Rubeko <8472027-candidtim@users.noreply.gitlab.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+click = "^8.1.7"
+
+[tool.poetry.group.dev.dependencies]
+isort = "^5.12"
+flake8 = "^6.1"
+mypy = "^1.7"
+pytest = "^7.4"
+black = "^23.11"
+
+[tool.poetry.scripts]
+fv = 'fvcs.main:main'
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
