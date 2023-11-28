@@ -70,6 +70,74 @@ For these reasons, the design choices are minimalist and based on reusability
 of existing and well-known tools (e.g., use `diff` and `patch` instead of
 implementing own diff algorithms).
 
+## Usage
+
+    # initialize a repository
+    fv init
+
+    # add a file
+    echo "Hello, World!\n" > README.txt
+    fv add README.txt --comment "Created the README"
+
+    # modify a file
+    echo "Hello, FVCS!\n" >> README.txt
+    fv diff README.txt
+    fv update README.txt -c "Updated the README"
+
+    # add another file, modify it several times
+    echo "foo\n" > foo.txt
+    fv add foo.txt -c "foo"
+    echo "bar\n" >> foo.txt
+    fv update foo.txt -c "bar"
+    echo "baz\n" >> foo.txt
+    fv update foo.txt -c "baz"
+
+    # snapshot across all files in a repository:
+    fv snapshot SNAPSHOT_NAME -c "First snapshot"
+
+    # update several files at once (each change is recorded separately)
+    echo "Hello, fine-grained version control" >> README.txt
+    echo "qux" >> foo.txt
+    fv update *.txt -c "Updated all text files"
+
+    # show single files history:
+    fv hist README.txt
+    fv hist foo.txt
+
+    # get a specific file version
+    fv get README.txt --version 1
+    fv get README.txt --snapshot SNAPSHOT_NAME
+
+    # restore an entire repository to a snapshot
+    fv restore SNAPSHOT_NAME
+
+    # create a file version that removes it
+    fv rm README.txt -c "Delete the README"  # doesn't delete its history
+
+    # remove the file and its history (forget it)
+    fv purge README.txt  # deletes the file and its history
+
+    # eject, use snapshots as repository versions (implies current latest too)
+    fv eject --snapshots
+    # eject, interpret every change as a repository version
+    # (uses update timestamps to order the changes)
+    fv eject --file-versions
+
+## Data and history storage format
+
+All data and history is stored in a ".fvcs" directory in the root of a
+repository:
+
+ - `.fvcs/tree`: files and diffs (history)
+   Every file in the repository has an according direcotory under `.fvcs/tree`
+   with the same relative path; this directory stores all diffs of a file. Any
+   file version can be restored by rolling up all diffs (patching) up to a
+   target version.
+ - `.fvcs/snapshots`: snapshot data
+   Every snapshot is a TOML file with references to repository files and their
+   versions. Files that didn't exist in the repository by the time the snapshot
+   was created are naturally not listed.
+
 ## Random ideas
 
  - Evaluate a possibility to inter-operate with Git, reuse Git for distributed
