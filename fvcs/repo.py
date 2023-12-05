@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
+from functools import cached_property
 
 
 class FvcsError(Exception):
@@ -116,45 +117,44 @@ class VersionedFile:
             raise RedundantOperationError(msg)
 
         self._data_dir.mkdir(parents=True, exist_ok=False)
-        self._new_version(prev_content=None)
+        shutil.copy(self.path, self._data_dir / "latest")
 
     def new_version(self) -> None:
-        self._new_version(prev_content=self._latest())
-
-    def _new_version(self, prev_content: Path | None) -> None:
         """Create a new version of the file based on the working copy"""
         next_version = self.versions[-1] + 1 if self.versions else 1
-        diff = make_diff(prev_content, self.path)
+        diff = make_diff(self.path.name, self.path, self.latest)  # reverse diff
         if diff is None:
             raise NoChangeError(f"{self} has not changed")
 
         new_diff_path = self._data_dir / f"{next_version}.diff"
         new_diff_path.write_text(diff)
+        shutil.copy(self.path, self._data_dir / "latest")
 
     def diff(self) -> str | None:
-        # FIXME: this check should be pretty much everywhere, but it may thus become redundant
         if not self.exists():
             raise NotInRepositoryError(f"{self} is not in the repository")
-        return make_diff(self._latest(), self.path)
+        return make_diff(self.path.name, self.latest, self.path)
 
     def restore(self, version: int, force: bool) -> None:
-        diff = make_diff(self._latest(), self.path)
+        diff = make_diff(self.path.name, self.latest, self.path)
         if diff is not None and not force:
             raise FileChangedError(f"{self} has chaanged")
-        else:
-            shutil.copyfile(self._as_of(version), self.path)
 
-    def _as_of(self, version: int) -> Path:
         if version not in self.versions:
             raise Exception(f"{self} has no version {version}")
 
-        diffs = [self._data_dir / f"{v}.diff" for v in self.versions if v <= version]
-        return patch(diffs)
-
-    def _latest(self) -> Path:
-        return self._as_of(self.versions[-1])
+        patch_versions = reversed([v for v in self.versions if v >= version])
+        patches = [self._data_dir / f"{v}.diff" for v in patch_versions]
+        restore = self._data_dir / self.path.name
+        shutil.copy(self._data_dir / "latest", restore)
+        patch(restore, patches)
+        shutil.move(restore, self.path)
 
     @property
+    def latest(self) -> Path:
+        return self._data_dir / "latest"
+
+    @cached_property
     def versions(self) -> list[int]:
         diff_files = self._data_dir.glob("*.diff")
         versions = sorted([int(p.stem) for p in diff_files])
@@ -164,7 +164,7 @@ class VersionedFile:
         return str(self.path)
 
 
-def make_diff(left: Path | None, right: Path | None) -> str | None:
+def make_diff(name: str, left: Path | None, right: Path | None) -> str | None:
     """
     Run diff on two files and return the unified diff output.
     Works with text files only.
@@ -172,25 +172,15 @@ def make_diff(left: Path | None, right: Path | None) -> str | None:
     all lines added or removed).
     """
     # TODO: handle binary files gracefully
-
-    def normalize_argument(path: Path | None) -> Tuple[Path, str]:
-        if path is None:
-            return Path("/dev/null"), "/dev/null"
-        else:
-            return path, str(path.name)
-
-    left, left_label = normalize_argument(left)
-    right, right_label = normalize_argument(right)
-
     args = [
         "diff",
         "--unified",
         "--label",
-        left_label,
+        name if left is not None else "/dev/null",
         "--label",
-        right_label,
-        str(left),
-        str(right),
+        name if right is not None else "/dev/null",
+        str(left) if left is not None else "/dev/null",
+        str(right) if right is not None else "/dev/null",
     ]
     res = subprocess.run(args, capture_output=True)
     if res.returncode > 1:
@@ -202,21 +192,18 @@ def make_diff(left: Path | None, right: Path | None) -> str | None:
         return res.stdout.decode("utf-8")
 
 
-def patch(diffs: list[Path]) -> Path:
+def patch(restore: Path, diffs: list[Path]):
     """
     Apply a list of diffs in a temporary directory and return the path of the
     resulting filof the resulting file.
     """
-    # FIXME: this assumes that all diffs apply to the same file, which is how
-    # add/update are designed, but is fragile; at least assert along the way
-    # FIXME: clean up the temporary directory
-    tmp_dir_path = tempfile.mkdtemp()
+    work_dir = diffs[0].parent
     args = [
         "patch",
         "--unified",
         "--remove-empty-files",
         "--directory",
-        str(tmp_dir_path),
+        str(work_dir),
     ]
     for diff in diffs:
         iargs = args + ["--input", str(diff)]
@@ -225,4 +212,3 @@ def patch(diffs: list[Path]) -> Path:
         if res.returncode != 0:
             err_msg = res.stderr.decode("utf-8")
             raise Exception(f"patch returned {res.returncode}\n{err_msg}")
-    return Path(tmp_dir_path) / diffs[0].name
