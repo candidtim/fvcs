@@ -3,12 +3,12 @@ from pathlib import Path
 
 import click
 
-from .repo import (NotInRepoError, add_file, diff_file, find_repo_root,
-                   init_repo, update_file)
-
+from .repo import (FileChangedError, NotInRepositoryError,
+                   RedundantOperationError, Repository)
 
 EXIT_NOT_IN_REPO = 1
-EXIT_ALREADY_ADDED = 2
+EXIT_REDUNDANT_OPERATION = 2
+EXIT_USAGE_ERROR = 3
 
 
 @click.group()
@@ -19,51 +19,72 @@ def main():
 @main.command()
 def init():
     try:
-        repo_root = init_repo()
-        click.echo(f"The repository is initialized in {repo_root}")
-    except FileExistsError:
-        repo_root = find_repo_root()
-        click.echo(f"The repository is already initialized in {repo_root}")
-        sys.exit(EXIT_ALREADY_ADDED)
+        repo = Repository.create()
+        click.echo(f"The repository is initialized in {repo.root}")
+    except RedundantOperationError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_REDUNDANT_OPERATION)
 
 
 @main.command()
 @click.argument("glob")
 def add(glob: str):
     # TODO: treat the argument as a glob pattern
+    path = Path(glob)
     try:
-        add_file(Path(glob))
-    except FileExistsError:
-        click.echo(f"File {glob} is already added to the repository")
-        sys.exit(EXIT_ALREADY_ADDED)
-    except NotInRepoError:
-        click.echo(f"File {glob} is not within a repository")
+        repo = Repository.find_or_fail()
+        vfile = repo.find_file(path)
+        vfile.create()
+    except NotInRepositoryError as err:
+        click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)
+    except RedundantOperationError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_REDUNDANT_OPERATION)
 
 
 @main.command()
 @click.argument("glob")
 def update(glob: str):
     # TODO: treat the argument as a glob pattern
+    path = Path(glob)
     try:
-        update_file(Path(glob))
-    except NotInRepoError:
-        click.echo(f"File {glob} is not within a repository")
+        repo = Repository.find_or_fail()
+        vfile = repo.find_file(path)
+        vfile.new_version()
+    except NotInRepositoryError as err:
+        click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)
-    except Exception as e:
-        click.echo(e)
-        sys.exit(EXIT_ALREADY_ADDED)
 
 
 @main.command()
 @click.argument("path")
 def diff(path: str):
     try:
-        diff = diff_file(Path(path))
+        repo = Repository.find_or_fail()
+        vfile = repo.find_file(Path(path))
+        diff = vfile.diff()
         if diff is None:
-            click.echo(f"File {path} is not modified")
+            click.echo(f"File {vfile} is not modified")
         else:
             click.echo(diff)
-    except NotInRepoError:
-        click.echo(f"File {path} is not in a repository")
+    except NotInRepositoryError as err:
+        click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)
+
+
+@main.command()
+@click.argument("path")
+@click.option("--version", "-v", type=int)
+@click.option("--force", "-f", is_flag=True, default=False)
+def restore(path: str, version: int, force: bool):
+    try:
+        repo = Repository.find_or_fail()
+        vfile = repo.find_file(Path(path))
+        vfile.restore(version, force)
+    except NotInRepositoryError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_NOT_IN_REPO)
+    except FileChangedError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_USAGE_ERROR)
