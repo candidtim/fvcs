@@ -3,8 +3,8 @@ from pathlib import Path
 
 import click
 
-from .repo import (FileChangedError, NotInRepositoryError,
-                   RedundantOperationError, Repository)
+from .repository import (FileChangedError, NotInRepositoryError,
+                         RedundantOperationError, Repository)
 
 EXIT_NOT_IN_REPO = 1
 EXIT_REDUNDANT_OPERATION = 2
@@ -51,7 +51,7 @@ def update(glob: str):
     try:
         repo = Repository.find_or_fail()
         vfile = repo.find_file(path)
-        vfile.new_version()
+        vfile.update()
     except NotInRepositoryError as err:
         click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)
@@ -75,9 +75,9 @@ def diff(path: str):
 
 @main.command()
 @click.argument("path")
-@click.option("--version", "-v", type=int)
+@click.argument("version", type=int)
 @click.option("--force", "-f", is_flag=True, default=False)
-def restore(path: str, version: int, force: bool):
+def get(path: str, version: int, force: bool):
     try:
         repo = Repository.find_or_fail()
         vfile = repo.find_file(Path(path))
@@ -88,3 +88,16 @@ def restore(path: str, version: int, force: bool):
     except FileChangedError as err:
         click.echo(str(err))
         sys.exit(EXIT_USAGE_ERROR)
+
+
+@main.command()
+@click.argument("path")
+def log(path: str):
+    try:
+        repo = Repository.find_or_fail()
+        vfile = repo.find_file(Path(path))
+        for v in vfile.versions:
+            print(v)
+    except NotInRepositoryError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_NOT_IN_REPO)

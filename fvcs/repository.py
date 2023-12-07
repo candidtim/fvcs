@@ -1,9 +1,9 @@
 import shutil
-import subprocess
-import tempfile
-from pathlib import Path
-from typing import Optional, Tuple
 from functools import cached_property
+from pathlib import Path
+from typing import Optional
+
+from .diff import make_diff, apply_patch
 
 
 class FvcsError(Exception):
@@ -88,6 +88,7 @@ class VersionedFile:
         # must not be used directly, use Repository.find_file or _get to
         # guarantee that VersionedFile instances are in valid states
         self.path = path
+        self.name = self.path.name
         self.repo = repo
 
     @classmethod
@@ -103,13 +104,23 @@ class VersionedFile:
     def _data_dir(self) -> Path:
         return self.repo._data_dir / "tree" / self.path
 
+    @property
+    def _latest_path(self) -> Path:
+        # notably, latest is not in the same directory as the diff files
+        # avoids confustions in case the original file name itself is "latest"
+        return self._data_dir / "latest"
+
+    @property
+    def _diff_dir(self) -> Path:
+        return self._data_dir / "versions"
+
     def exists(self) -> bool:
         return self._data_dir.is_dir()
 
     def create(self) -> None:
         """
         Add a file to the repository.
-        Raises RedundantOperationError if the file is already in to the repository.
+        Raises RedundantOperationError if the file is already in the repository.
         Raises NotInRepositoryError if the file path is not within a repository.
         """
         if self.exists():
@@ -117,26 +128,27 @@ class VersionedFile:
             raise RedundantOperationError(msg)
 
         self._data_dir.mkdir(parents=True, exist_ok=False)
-        shutil.copy(self.path, self._data_dir / "latest")
+        self._diff_dir.mkdir(parents=True, exist_ok=False)
+        shutil.copy(self.path, self._latest_path)
 
-    def new_version(self) -> None:
+    def update(self) -> None:
         """Create a new version of the file based on the working copy"""
         next_version = self.versions[-1] + 1 if self.versions else 1
-        diff = make_diff(self.path.name, self.path, self.latest)  # reverse diff
+        diff = make_diff(self.name, self.path, self._latest_path)  # reverse diff
         if diff is None:
             raise NoChangeError(f"{self} has not changed")
 
-        new_diff_path = self._data_dir / f"{next_version}.diff"
-        new_diff_path.write_text(diff)
-        shutil.copy(self.path, self._data_dir / "latest")
+        diff_path = self._diff_dir / f"{next_version}.diff"
+        diff_path.write_text(diff)
+        shutil.copy(self.path, self._latest_path)
 
     def diff(self) -> str | None:
         if not self.exists():
             raise NotInRepositoryError(f"{self} is not in the repository")
-        return make_diff(self.path.name, self.latest, self.path)
+        return make_diff(self.name, self._latest_path, self.path)
 
     def restore(self, version: int, force: bool) -> None:
-        diff = make_diff(self.path.name, self.latest, self.path)
+        diff = make_diff(self.name, self._latest_path, self.path)
         if diff is not None and not force:
             raise FileChangedError(f"{self} has chaanged")
 
@@ -144,71 +156,18 @@ class VersionedFile:
             raise Exception(f"{self} has no version {version}")
 
         patch_versions = reversed([v for v in self.versions if v >= version])
-        patches = [self._data_dir / f"{v}.diff" for v in patch_versions]
-        restore = self._data_dir / self.path.name
-        shutil.copy(self._data_dir / "latest", restore)
-        patch(restore, patches)
-        shutil.move(restore, self.path)
-
-    @property
-    def latest(self) -> Path:
-        return self._data_dir / "latest"
+        patches = [self._diff_dir / f"{v}.diff" for v in patch_versions]
+        base = self._data_dir / self.name
+        shutil.copy(self._data_dir / "latest", base)
+        for p in patches:
+            apply_patch(base, p)
+        shutil.move(base, self.path)
 
     @cached_property
     def versions(self) -> list[int]:
-        diff_files = self._data_dir.glob("*.diff")
+        diff_files = self._diff_dir.glob("*.diff")
         versions = sorted([int(p.stem) for p in diff_files])
         return versions
 
     def __str__(self) -> str:
         return str(self.path)
-
-
-def make_diff(name: str, left: Path | None, right: Path | None) -> str | None:
-    """
-    Run diff on two files and return the unified diff output.
-    Works with text files only.
-    Accepts None on left or right to indicate an empty file (diff will reflect
-    all lines added or removed).
-    """
-    # TODO: handle binary files gracefully
-    args = [
-        "diff",
-        "--unified",
-        "--label",
-        name if left is not None else "/dev/null",
-        "--label",
-        name if right is not None else "/dev/null",
-        str(left) if left is not None else "/dev/null",
-        str(right) if right is not None else "/dev/null",
-    ]
-    res = subprocess.run(args, capture_output=True)
-    if res.returncode > 1:
-        err_msg = res.stderr.decode("utf-8")
-        raise Exception(f"diff returned {res.returncode}\n{err_msg}")
-    elif res.returncode == 0:
-        return None
-    else:
-        return res.stdout.decode("utf-8")
-
-
-def patch(restore: Path, diffs: list[Path]):
-    """
-    Apply a list of diffs in a temporary directory and return the path of the
-    resulting filof the resulting file.
-    """
-    work_dir = diffs[0].parent
-    args = [
-        "patch",
-        "--unified",
-        "--remove-empty-files",
-        "--directory",
-        str(work_dir),
-    ]
-    for diff in diffs:
-        iargs = args + ["--input", str(diff)]
-        print("$ " + " ".join(iargs))
-        res = subprocess.run(iargs, cwd=Path.cwd(), capture_output=True)
-        if res.returncode != 0:
-            err_msg = res.stderr.decode("utf-8")
-            raise Exception(f"patch returned {res.returncode}\n{err_msg}")
