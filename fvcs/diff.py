@@ -43,7 +43,6 @@ def apply_patch(orig: Path, diff: Path) -> None:
         str(diff),
         str(orig),
     ]
-    print(args)
     res = subprocess.run(args, capture_output=True)
     if res.returncode != 0:
         err_msg = res.stderr.decode("utf-8")

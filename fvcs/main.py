@@ -3,7 +3,7 @@ from pathlib import Path
 
 import click
 
-from .repository import (FileChangedError, NotInRepositoryError,
+from .repository import (FileChangedError, NoChangeError, NotInRepositoryError,
                          RedundantOperationError, Repository)
 
 EXIT_NOT_IN_REPO = 1
@@ -35,6 +35,7 @@ def add(glob: str):
         repo = Repository.find_or_fail()
         vfile = repo.find_file(path)
         vfile.create()
+        click.echo(f"Added {vfile} to the repository")
     except NotInRepositoryError as err:
         click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)
@@ -51,10 +52,14 @@ def update(glob: str):
     try:
         repo = Repository.find_or_fail()
         vfile = repo.find_file(path)
-        vfile.update()
+        version = vfile.update()
+        click.echo(f"Updated {vfile} (previous version: {version})")
     except NotInRepositoryError as err:
         click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)
+    except NoChangeError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_REDUNDANT_OPERATION)
 
 
 @main.command()
@@ -65,7 +70,7 @@ def diff(path: str):
         vfile = repo.find_file(Path(path))
         diff = vfile.diff()
         if diff is None:
-            click.echo(f"File {vfile} is not modified")
+            click.echo(f"{vfile} is not modified")
         else:
             click.echo(diff)
     except NotInRepositoryError as err:
@@ -82,6 +87,7 @@ def get(path: str, version: int, force: bool):
         repo = Repository.find_or_fail()
         vfile = repo.find_file(Path(path))
         vfile.restore(version, force)
+        click.echo(f"Restored {vfile} to version {version}")
     except NotInRepositoryError as err:
         click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)

@@ -68,7 +68,7 @@ class Repository:
         """
         repo = Repository.find()
         if repo is not None:
-            msg = f"Repository already exists at {repo.root}"
+            msg = f"The repository already exists in {repo.root}"
             raise RedundantOperationError(msg)
         else:
             repo = Repository(Path.cwd())
@@ -131,16 +131,18 @@ class VersionedFile:
         self._diff_dir.mkdir(parents=True, exist_ok=False)
         shutil.copy(self.path, self._latest_path)
 
-    def update(self) -> None:
+    def update(self) -> int:
         """Create a new version of the file based on the working copy"""
         next_version = self.versions[-1] + 1 if self.versions else 1
         diff = make_diff(self.name, self.path, self._latest_path)  # reverse diff
         if diff is None:
-            raise NoChangeError(f"{self} has not changed")
+            raise NoChangeError(f"{self} is not modified")
 
         diff_path = self._diff_dir / f"{next_version}.diff"
         diff_path.write_text(diff)
         shutil.copy(self.path, self._latest_path)
+
+        return next_version
 
     def diff(self) -> str | None:
         if not self.exists():
@@ -150,7 +152,7 @@ class VersionedFile:
     def restore(self, version: int, force: bool) -> None:
         diff = make_diff(self.name, self._latest_path, self.path)
         if diff is not None and not force:
-            raise FileChangedError(f"{self} has chaanged")
+            raise FileChangedError(f"{self} is modified")
 
         if version not in self.versions:
             raise Exception(f"{self} has no version {version}")
