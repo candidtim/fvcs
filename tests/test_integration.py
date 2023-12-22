@@ -89,10 +89,7 @@ def test_nominal_simple():
         assert result.output == "Restored file.txt to version 1\n"
         assert Path("file.txt").read_text() == "first\n"
 
-        # FIXME: should be restoring to latest, if want to test redundant operations
-        #        (otherwise, there is always a diff)
-        # TODO: actually implement the ability to restore to latest
-        # result = runner.invoke(main, ["get", "file.txt", "1"])
-        # assert result.exit_code == 3
-        # assert result.output == "Restored file.txt to version 1\n"
-        # assert Path("file.txt").read_text() == "first\n"
+        result = runner.invoke(main, ["get", "--force", "file.txt", "latest"])
+        assert result.exit_code == 0
+        assert result.output == "Restored file.txt to version latest\n"
+        assert Path("file.txt").read_text() == "first\nsecond\n"

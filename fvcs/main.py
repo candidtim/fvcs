@@ -80,9 +80,17 @@ def diff(path: str):
 
 @main.command()
 @click.argument("path")
-@click.argument("version", type=int)
+@click.argument("version")
 @click.option("--force", "-f", is_flag=True, default=False)
-def get(path: str, version: int, force: bool):
+def get(path: str, version: int | str, force: bool):
+
+    if version != "latest":
+        try:
+            version = int(version)
+        except ValueError:
+            click.echo(f"Invalid version: {version}")
+            sys.exit(EXIT_USAGE_ERROR)
+
     try:
         repo = Repository.find_or_fail()
         vfile = repo.find_file(Path(path))

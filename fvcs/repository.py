@@ -149,21 +149,24 @@ class VersionedFile:
             raise NotInRepositoryError(f"{self} is not in the repository")
         return make_diff(self.name, self._latest_path, self.path)
 
-    def restore(self, version: int, force: bool) -> None:
+    def restore(self, version: int | str, force: bool) -> None:
         diff = make_diff(self.name, self._latest_path, self.path)
         if diff is not None and not force:
             raise FileChangedError(f"{self} is modified")
 
-        if version not in self.versions:
+        if version not in self.versions and version != "latest":
             raise Exception(f"{self} has no version {version}")
 
-        patch_versions = reversed([v for v in self.versions if v >= version])
-        patches = [self._diff_dir / f"{v}.diff" for v in patch_versions]
-        base = self._data_dir / self.name
-        shutil.copy(self._data_dir / "latest", base)
-        for p in patches:
-            apply_patch(base, p)
-        shutil.move(base, self.path)
+        if version == "latest":
+            shutil.copy(self._latest_path, self.path)
+        else:
+            patch_versions = reversed([v for v in self.versions if v >= version])
+            patches = [self._diff_dir / f"{v}.diff" for v in patch_versions]
+            base = self._data_dir / self.name
+            shutil.copy(self._data_dir / "latest", base)
+            for p in patches:
+                apply_patch(base, p)
+            shutil.move(base, self.path)
 
     @cached_property
     def versions(self) -> list[int]:
