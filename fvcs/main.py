@@ -5,6 +5,7 @@ import click
 
 from .repository import (FileChangedError, NoChangeError, NotInRepositoryError,
                          RedundantOperationError, Repository)
+from .distributed import Remote
 
 EXIT_NOT_IN_REPO = 1
 EXIT_REDUNDANT_OPERATION = 2
@@ -112,6 +113,32 @@ def log(path: str):
         vfile = repo.find_file(Path(path))
         for v in vfile.versions:
             print(v)
+    except NotInRepositoryError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_NOT_IN_REPO)
+
+
+@main.group()
+def remote():
+    pass
+
+
+@main.command()
+def add():
+    try:
+        repo = Repository.find_or_fail()
+        click.echo(f"The repository is distributed at {repo.remote}")
+    except NotInRepositoryError as err:
+        click.echo(str(err))
+        sys.exit(EXIT_NOT_IN_REPO)
+
+
+@main.command()
+def push():
+    try:
+        repo = Repository.find_or_fail()
+        repo.push()
+        click.echo(f"Pushed to {repo.remote}")
     except NotInRepositoryError as err:
         click.echo(str(err))
         sys.exit(EXIT_NOT_IN_REPO)

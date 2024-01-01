@@ -8,6 +8,10 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 click = "^8.1.7"
+tomlkit = "^0.12.3"
+
+[tool.poetry.group.remote-gcs.dependencies]
+fsspec = {extras = ["gcs"], version = "^2023.12.2"}
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.12"
